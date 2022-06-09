@@ -17,9 +17,11 @@ from whoosh.query import Variations
 def load_taxonomy(base_category, taxonomy_file, taxonomy_url, fetch_online=False):
     if fetch_online:
         r = requests.get(taxonomy_url)
+        r.encoding = r.apparent_encoding
         taxonomy_content = r.text
     else:
         taxonomy_content = open(taxonomy_file).read()
+    #print(taxonomy_content)
     lines = taxonomy_content.split('\n')
     if base_category:
         filtered_lines = []
@@ -40,7 +42,10 @@ def index_product_info(product_dict):
     ix = st.create_index(schema)
     writer = ix.writer()
     for key in product_dict.keys():
-        writer.add_document(path=unicode(key, "utf-8"), content=unicode(product_dict[key], "utf-8"))
+        #print(key)
+        #print(product_dict[key])
+        #print(type(key),type(product_dict[key]))
+        writer.add_document(path=key, content=product_dict[key])
     writer.commit(mergetype=writing.CLEAR)
     return ix
 
@@ -81,6 +86,8 @@ def get_category(string):
 
 
 def get_best_match(matches):
+    #print('matches: ')
+    #print(matches)
     if not matches:
         return ''
         # find most hits
@@ -101,7 +108,7 @@ def get_best_match(matches):
 
 def safe_get(row, column):
     value = row.get(column)
-    if isinstance(value, basestring):
+    if isinstance(value, str) and len(value.replace(' ',''))>0:
         return value
     return ''
 
@@ -126,11 +133,11 @@ if __name__ == "__main__":
     settings = {}
     if os.path.exists("settings.yaml"):
         settings = load(open("settings.yaml"), Loader=Loader)
-    taxonomy_file = settings.get("google_taxonomy_file", "taxonomy.en-US.txt")
-    taxonomy_url = settings.get("google_taxonomy_url", "http://www.google.com/basepages/producttype/taxonomy.en-GB.txt")
+    taxonomy_file = settings.get("google_taxonomy_file", "taxonomy.zh-TW.txt")
+    taxonomy_url = settings.get("google_taxonomy_url", "https://www.google.com/basepages/producttype/taxonomy.zh-TW.txt")
     fetch_online = settings.get("fetch_taxonomy_online", True)
-    product_file = settings.get("product_file", "product.csv")
-    output_product_file = settings.get("output_product_file", "product.matched.csv")
+    product_file = settings.get("product_file", "test.csv")
+    output_product_file = settings.get("output_product_file", "test.matched.csv")
     product_columns = settings.get("product_columns", ["title", "product type", "description"])
     product_column_weights = settings.get("product_column_weights", [3, 2, 1])
     weights = {}
@@ -144,19 +151,19 @@ if __name__ == "__main__":
         overwrite_category = settings.get("overwrite_category", False)
 
     # load taxonomy
-    print "Loading taxonomy. Base categories: %s ..." % ", ".join(args.base_category)
+    print ("Loading taxonomy. Base categories: %s ..." % ", ".join(args.base_category))
     categories = load_taxonomy(args.base_category, taxonomy_file=taxonomy_file, taxonomy_url=taxonomy_url,
                                fetch_online=fetch_online)
     if not categories:
-        print "Error: base category %s not found in taxonomy" % args.base_category
+        print ("Error: base category %s not found in taxonomy" % args.base_category)
 
     if not args.base_category:
-        print "Warning: you did not specify a base category. This can take *very* long time to complete. See matcher -h for help."
+        print ("Warning: you did not specify a base category. This can take *very* long time to complete. See matcher -h for help.")
 
     # load product csv file
-    print "Parsing input file: %s" % product_file
-    product_data = pd.read_csv(product_file, sep='\t', usecols=product_columns + [google_category_column])
-    print "Processing %d rows ..." % product_data.shape[0]
+    print ("Parsing input file: %s" % product_file)
+    product_data = pd.read_csv(product_file, sep=',', usecols=product_columns + [google_category_column])
+    print ("Processing %d rows ..." % product_data.shape[0])
 
     # if target google category column doesnt exist in file: add
     if not google_category_column in product_data.columns:
@@ -168,7 +175,7 @@ if __name__ == "__main__":
     for row_index, row in product_data.iterrows():
         index += 1
         if index % 10 == 0:
-            print "Progress: %d rows finished" % index
+            print ("Progress: %d rows finished" % index)
         p = {}
         for col in product_columns:
             value = safe_get(row, col)
@@ -193,13 +200,14 @@ if __name__ == "__main__":
 
         # select best match
         best_match = get_best_match(matches)
+        print(matches)
 
         logging.debug("MATCHES: %s" % str(matches))
         logging.debug("======> best match: %s" % best_match)
 
         if not gcat or overwrite_category:
             if best_match:
-                product_data.ix[index - 2, google_category_column] = best_match
+                product_data.loc[index - 2, google_category_column] = best_match
                 # row[google_category_column] = best_match
                 replacements += 1
 
@@ -207,11 +215,11 @@ if __name__ == "__main__":
     # copy category column into original file
     gcat_col = product_data[google_category_column]
 
-    original_data = pd.read_csv(product_file, sep='\t')
+    original_data = pd.read_csv(product_file, sep=',')
     original_data[google_category_column] = gcat_col
-    original_data.to_csv(output_product_file, sep='\t', index=False)
-    print "processed %d rows of '%s', replaced %d,  output written to '%s'" % (
-        (index - 1), product_file, replacements, output_product_file)
+    original_data.to_csv(output_product_file, sep=',', index=False)
+    print ("processed %d rows of '%s', replaced %d,  output written to '%s'" % (
+        (index - 1), product_file, replacements, output_product_file))
 
 
 
